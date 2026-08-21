@@ -15,7 +15,7 @@ env/
 
 data/raw/*
 !data/raw/.gitkeep
-data.processed/*
+data/processed/*
 !data/processed/.gitkeep
 
 #Model artifacts
