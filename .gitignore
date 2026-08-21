@@ -1,0 +1,43 @@
+# Python
+
+__pycache__/
+*.pyc
+*.pyo
+venv/
+env/
+.venv/
+*.egg-info/
+
+# Jupyter
+.ipynb_checkpoints/
+
+#Data (large files so we keep them locally)
+
+data/raw/*
+!data/raw/.gitkeep
+data.processed/*
+!data/processed/.gitkeep
+
+#Model artifacts
+
+model/*.pkl
+model/*.onnx
+model/*.h5
+
+#Environment / secrets
+.env
+*.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+#Node (Using React as Frontend)
+
+node_modules/
+dist/
+build/
+
+#ide
+.vscode/
+.idea/
