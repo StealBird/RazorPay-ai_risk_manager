@@ -1,42 +1,104 @@
 # data/prepare_data.py
+import numpy as np
 
 import pandas as pd
 from sklearn.model_selection import train_test_split
-
 # Load 
 RAW_PATH = "data/raw/PS_20174392719_1491204439457_log.csv"
 df = pd.read_csv(RAW_PATH)
-
 print("Original shape:", df.shape)
 
-# Filter to TRANSFER and CASH_OUT only (Train only on useful cases)
-# Fraud in this dataset ONLY occurs in these two types (confirmed via EDA).
-# Keeping other types would pad metrics with trivially-easy negatives.
-
+# Filter to TRANSFER and CASH_OUT only 
 df = df[df["type"].isin(["TRANSFER", "CASH_OUT"])].reset_index(drop=True)
+print("Filtered shape:", df.shape)
 
-print("Filtered shape (TRANSFER + CASH_OUT only):", df.shape)
-print("\nFraud rate after filtering (%):", df["isFraud"].mean() * 100)
-print("\nFraud count after filtering:")
-print(df["isFraud"].value_counts())
+# Sort by customer and step — REQUIRED for correct historical feature computation 
+# Every "history" feature below must only look BACKWARD in time relative to
+# the current row, or we leak future information into past predictions.
+df = df.sort_values(["nameOrig", "step"]).reset_index(drop=True)
 
+# =====================================================================
+# FEATURE ENGINEERING
+# =====================================================================
 
-# Drop leaky columns 
-# These reflect POST-fraud state (balances get cancelled/reset once fraud is detected),
-# so using them would be leakage — the model would cheat using information that
-# wouldn't legitimately exist at prediction time.
-LEAKY_COLS = ["oldbalanceOrg", "newbalanceOrig", "oldbalanceDest", "newbalanceDest"]
+# 1. Customer historical stats (expanding window, shifted to exclude current row) 
+grouped = df.groupby("nameOrig")["amount"]
 
-# Also drop nameOrig/nameDest (just transaction IDs, no predictive value)
-# and isFlaggedFraud (business's own naive rule — we're building something new, not copying it)
-DROP_COLS = LEAKY_COLS + ["nameOrig", "nameDest", "isFlaggedFraud"]
+df["cust_txn_count_so_far"] = grouped.cumcount()  #txns before this one (0 = first ever)
+# Cumulative sum and count per customer, shifted to exclude current row
+cum_sum = grouped.cumsum() - df["amount"]  # sum of all PRIOR transactions
+cum_count = grouped.cumcount()  # count of PRIOR transactions (0-indexed, so this = count before current)
 
-df = df.drop(columns=DROP_COLS)
-print("\nColumns remaining:", list(df.columns))
+df["cust_hist_avg_amount"] = (cum_sum / cum_count.replace(0, pd.NA))
 
-# ---- Train/test split (stratified — keeps fraud ratio consistent in both sets) ----
-X = df.drop(columns=["isFraud"])
-y = df["isFraud"]
+df["cust_hist_max_amount"] = grouped.cummax().shift(1)
+
+# Ratio features — guard against division by zero / NaN for first-ever transactions
+df["amount_vs_hist_median"] = df["amount"] / df["cust_hist_avg_amount"]
+df["amount_vs_hist_max"] = df["amount"] / df["cust_hist_max_amount"]
+df["is_first_transaction"] = (df["cust_txn_count_so_far"] == 0).astype(int)
+
+# Replace inf/-inf (from division by zero) AND NaN (from 0/0) with a sensible default
+df["amount_vs_hist_median"] = df["amount_vs_hist_median"].replace([float("inf"), float("-inf")], pd.NA)
+df["amount_vs_hist_max"] = df["amount_vs_hist_max"].replace([float("inf"), float("-inf")], pd.NA)
+
+df["amount_vs_hist_median"] = df["amount_vs_hist_median"].fillna(1.0)
+df["amount_vs_hist_max"] = df["amount_vs_hist_max"].fillna(1.0)
+
+# 2. Time since customer's last transaction (in step units) 
+df["prev_step"] = df.groupby("nameOrig")["step"].shift(1)
+df["steps_since_last_txn"] = (df["step"] - df["prev_step"]).fillna(-1)  # -1 = no prior txn
+
+# 3. Recipient-side feature: how many times has this destination received money before? 
+df = df.sort_values(["nameDest", "step"]).reset_index(drop=True)
+df["recipient_received_count_so_far"] = df.groupby("nameDest").cumcount()
+
+# 4. Transfer-then-cashout pattern 
+# Re-sort by customer + step to check sequential behavior per account
+df = df.sort_values(["nameOrig", "step"]).reset_index(drop=True)
+df["next_type"] = df.groupby("nameOrig")["type"].shift(-1)
+df["next_step"] = df.groupby("nameOrig")["step"].shift(-1)
+
+df["transfer_then_cashout"] = (
+    (df["type"] == "TRANSFER") &
+    (df["next_type"] == "CASH_OUT")
+).astype(int)
+
+df["steps_to_cashout"] = df["next_step"] - df["step"]
+df["steps_to_cashout"] = df["steps_to_cashout"].where(df["transfer_then_cashout"] == 1, -1)
+
+# 5. Time-of-day feature (cyclical proxy — step is hourly, 24 steps = 1 day) 
+df["hour_of_day"] = df["step"] % 24
+
+# 6. Amount transformations 
+df["amount_log"] = np.log1p(df["amount"])
+df["is_round_amount"] = (df["amount"] % 1000 == 0).astype(int)
+
+# 7. Amount percentile within transaction type 
+df["amount_percentile_within_type"] = df.groupby("type")["amount"].rank(pct=True)
+
+print("\nEngineered feature columns added.")
+
+# =====================================================================
+# FINAL COLUMN SELECTION
+# =====================================================================
+
+# Drop leakage columns, raw IDs (kept only for feature construction, not as model inputs),
+# and intermediate helper columns
+DROP_COLS = [
+    "oldbalanceOrg", "newbalanceOrig", "oldbalanceDest", "newbalanceDest",
+    "isFlaggedFraud", "nameOrig", "nameDest",
+    "prev_step", "next_type", "next_step",
+]
+df_model = df.drop(columns=DROP_COLS)
+
+print("\nFinal columns for modeling:", list(df_model.columns))
+print("\nSample rows:")
+print(df_model.head())
+
+# Train/test split (stratified) 
+X = df_model.drop(columns=["isFraud"])
+y = df_model["isFraud"]
 
 X_train, X_test, y_train, y_test = train_test_split(
     X, y, test_size=0.2, random_state=42, stratify=y
@@ -45,11 +107,10 @@ X_train, X_test, y_train, y_test = train_test_split(
 print("\nTrain shape:", X_train.shape, "  Fraud rate:", y_train.mean() * 100)
 print("Test shape:", X_test.shape, "  Fraud rate:", y_test.mean() * 100)
 
-# Save processed data
+# Save 
 X_train.to_csv("data/processed/X_train.csv", index=False)
 X_test.to_csv("data/processed/X_test.csv", index=False)
 y_train.to_csv("data/processed/y_train.csv", index=False)
 y_test.to_csv("data/processed/y_test.csv", index=False)
 
-print("\nSaved processed train/test splits to data/processed/")
-
+print("\nSaved processed train/test splits with engineered features to data/processed/")

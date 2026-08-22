@@ -1,6 +1,7 @@
 # model/evaluate.py
 
 import pandas as pd
+import numpy as np
 import joblib
 from sklearn.metrics import (
     precision_recall_curve,
@@ -22,6 +23,9 @@ y_test = pd.read_csv("data/processed/y_test.csv").squeeze()
 X_test = pd.get_dummies(X_test, columns=["type"], drop_first=True)
 # Ensure column order/presence matches training exactly
 X_test = X_test.reindex(columns=feature_columns, fill_value=0)
+
+# Handle inf/NaN — same guard as in train.py 
+X_test = X_test.replace([np.inf, -np.inf], np.nan).fillna(-1)
 
 X_test_scaled = scaler.transform(X_test)
 
