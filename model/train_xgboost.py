@@ -47,4 +47,5 @@ print("\nXGBoost model trained.")
 # Save
 joblib.dump(model, "model/xgboost_model.pkl")
 joblib.dump(list(X_train.columns), "model/xgb_feature_columns.pkl")
+model.save_model("model/xgboost_model.json")
 print("Saved XGBoost model to model/")

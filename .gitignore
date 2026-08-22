@@ -23,6 +23,7 @@ data/processed/*
 model/*.pkl
 model/*.onnx
 model/*.h5
+model/*.json
 
 #Environment / secrets
 .env
@@ -40,4 +41,4 @@ build/
 
 #ide
 .vscode/
-.idea/
+.idea/model/*.json
