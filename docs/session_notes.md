@@ -11,3 +11,14 @@
   4. .expanding() too slow at scale - switched to vectorized cumsum/cummax
 - Next: XGBoost (logistic regression is linear, can't capture feature interactions - 
   precision still low ~7.6% even at threshold 0.9)
+
+ ### XGBoost results (major improvement):
+- Logistic regression (engineered features): PR-AUC = 0.0462
+- XGBoost (same 17 features): PR-AUC = 0.6208 (~13x improvement)
+- At threshold=0.9: Precision 28.9%, Recall 70.1% (vs LogReg's 7.6%/31.0% at same threshold)
+- Top features by importance: type_TRANSFER, recipient_received_count_so_far, 
+  amount_percentile_within_type
+- Honest finding: is_first_transaction, amount_vs_hist_median, steps_to_cashout 
+  contributed ~0 importance - not every engineered feature idea panned out, 
+  XGBoost found other features captured that signal more effectively
+- Next: SHAP explainability, then failure case analysis
