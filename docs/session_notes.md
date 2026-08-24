@@ -22,3 +22,8 @@
   contributed ~0 importance - not every engineered feature idea panned out, 
   XGBoost found other features captured that signal more effectively
 - Next: SHAP explainability, then failure case analysis
+
+### Session end: failure case analysis complete
+- docs/failure_case_analysis.md written and committed (FP + FN cases, SHAP-explained)
+- Next session: FastAPI backend (/score, /explain, /metrics endpoints), then Streamlit frontend
+- Deadline: Sep 5

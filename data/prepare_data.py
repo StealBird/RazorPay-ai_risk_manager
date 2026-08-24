@@ -79,6 +79,17 @@ df["amount_percentile_within_type"] = df.groupby("type")["amount"].rank(pct=True
 
 print("\nEngineered feature columns added.")
 
+# Save a customer history lookup table BEFORE dropping IDs 
+# This simulates a production transaction database — the backend will
+# query this to look up a customer's latest known stats at request time.
+lookup_cols = [
+    "nameOrig", "step", "type", "amount",
+    "cust_txn_count_so_far", "cust_hist_avg_amount", "cust_hist_max_amount",
+    "recipient_received_count_so_far", "nameDest",
+]
+df[lookup_cols].to_csv("data/processed/customer_history_lookup.csv", index=False)
+print("\nSaved customer history lookup table to data/processed/customer_history_lookup.csv")
+
 # =====================================================================
 # FINAL COLUMN SELECTION
 # =====================================================================
