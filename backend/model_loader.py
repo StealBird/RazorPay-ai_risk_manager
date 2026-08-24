@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 import joblib
 import xgboost as xgb
+import shap
 
 MODEL_PATH = "model/xgboost_model.json"
 FEATURE_COLUMNS_PATH = "model/xgb_feature_columns.pkl"
@@ -93,18 +94,25 @@ def build_features(customer_id: str, recipient_id: str, step: int, txn_type: str
         "cust_txn_count_so_far": cust_hist["cust_txn_count_so_far"],
         "cust_hist_avg_amount": cust_hist["cust_hist_avg_amount"],
         "cust_hist_max_amount": cust_hist["cust_hist_max_amount"],
-        "amount_vs_hist_median": amount_vs_hist_avg,  # naming kept consistent with training
+        "amount_vs_hist_median": amount_vs_hist_avg,
         "amount_vs_hist_max": amount_vs_hist_max,
         "is_first_transaction": cust_hist["is_first_transaction"],
         "steps_since_last_txn": cust_hist["steps_since_last_txn"],
         "recipient_received_count_so_far": recipient_hist["recipient_received_count_so_far"],
-        "transfer_then_cashout": 0,  # requires future data, not derivable live — default
-        "steps_to_cashout": -1.0,     # same — not derivable at scoring time, honestly
+        "transfer_then_cashout": 0,
+        "steps_to_cashout": -1.0,
         "hour_of_day": step % 24,
         "amount_log": np.log1p(amount),
         "is_round_amount": int(amount % 1000 == 0),
-        "amount_percentile_within_type": 0.5,  # can't compute true percentile live without full dataset — using neutral default; see README
+        "amount_percentile_within_type": 0.5,
     }
+
+    # ---- Convert any numpy types to native Python types (JSON serialization requires this) ----
+    features = {
+        k: (v.item() if isinstance(v, np.generic) else v)
+        for k, v in features.items()
+    }
+
     return features
 
 
@@ -129,3 +137,10 @@ def get_model():
 
 def get_feature_columns():
     return _feature_columns
+
+
+# ---- Load SHAP explainer once at import time (expensive to rebuild per-request) ----
+_explainer = shap.TreeExplainer(_model)
+
+def get_explainer():
+    return _explainer

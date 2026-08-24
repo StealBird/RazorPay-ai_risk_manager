@@ -1,6 +1,6 @@
 # Failure Case Analysis — AI Risk Manager
 
-Honest metrics are only half the story — understanding *why* a model fails matters as much as knowing that it works. This document walks through two real failure cases pulled from our test set: one false positive and one false negative, both explained using SHAP.
+Honest metrics are only half the story — understanding *why* a model fails matters as much as knowing that it works. This document walks through three real failure cases: a false positive and a false negative pulled from our test set, plus an out-of-distribution failure discovered live while testing the interactive dashboard — all explained using SHAP.
 
 ## Model summary (for context)
 
@@ -52,10 +52,32 @@ Honest metrics are only half the story — understanding *why* a model fails mat
 
 ---
 
+## Case 3: Out-of-distribution failure (discovered live, via the dashboard)
+
+**Transaction:** ₹1 TRANSFER at step 25 (hour 1 / 1am), first transaction from this customer.
+
+**Model output:** Risk score 72.65%, flagged HIGH — for a one-rupee transfer.
+
+**Top SHAP drivers:**
+| Feature | Contribution | Interpretation |
+|---|---|---|
+| `hour_of_day` | +2.98 | 1am timing pushed strongly toward "fraud" |
+| `recipient_received_count_so_far` | +0.95 | New recipient — pushed toward "fraud" |
+| `amount` | −0.91 | Tiny amount pushed toward "legitimate," but not enough to offset the above |
+
+**Why this happened:** This wasn't found by mining the test set — it surfaced while manually testing the live scorer, which is itself a useful reminder that interactive testing catches things static evaluation metrics don't. In the training data, odd-hour transactions were disproportionately fraud, but those fraud cases were almost always large amounts too — the combination of "odd hour" with a "trivially small amount" barely exists in the training distribution. Faced with an input outside what it learned, the model falls back hard on its strongest individual signal (`hour_of_day`) rather than correctly weighing the amount as an overriding factor.
+
+**What this reveals about the model:** This is a classic **out-of-distribution** failure — the model was never meaningfully trained on this specific combination of feature values, so its behavior there isn't well-calibrated. It's a reminder that a model's average performance (PR-AUC 0.6208) doesn't guarantee sane behavior on every possible input, especially ones far from what it saw during training.
+
+**Business framing / fix:** In production, this is exactly why ML risk scores are layered with simple business-rule guardrails rather than deployed alone — e.g., a minimum-amount floor (transactions under a small threshold, such as ₹100, bypass ML scoring entirely and are auto-approved) would prevent this specific failure mode without needing to retrain the model. This is a cheap, honest mitigation worth stating explicitly rather than claiming the model handles all cases well.
+
+---
+
 ## What we'd improve next
 
 1. **Add recipient-pair history** (has this *specific* sender ever sent to this *specific* recipient before), not just aggregate recipient activity — likely to sharpen the boundary between Case 1 and Case 2.
 2. **Ensemble with an anomaly-detection model** (e.g., Isolation Forest) trained specifically on the "normal-looking" fraud pattern from Case 2, to catch fraud that mimics typical behavior.
 3. **Incorporate account verification signals** if available in a real deployment — the single biggest gap exposed by Case 1.
+4. **Add a minimum-amount business-rule floor** ahead of the ML model, directly addressing Case 3 — cheap, simple, and doesn't require retraining.
 
-These two cases, together, show the model's real operating boundary: strong on high-signal fraud, weaker at the edges where fraud resembles normal behavior — which is an honest, expected limitation for a two-week build on synthetic data with a constrained feature set.
+These three cases, together, show the model's real operating boundary: strong on high-signal fraud, weaker at the edges where fraud resembles normal behavior, and occasionally miscalibrated on inputs far outside its training distribution — an honest, expected set of limitations for a two-week build on synthetic data with a constrained feature set.
