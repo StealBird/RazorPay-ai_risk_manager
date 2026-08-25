@@ -27,3 +27,11 @@
 - docs/failure_case_analysis.md written and committed (FP + FN cases, SHAP-explained)
 - Next session: FastAPI backend (/score, /explain, /metrics endpoints), then Streamlit frontend
 - Deadline: Sep 5
+
+### Backend debugging session:
+- Fixed: duplicate /score route definition (leftover from merging a guardrail snippet)
+- Fixed: import shap placed after use in model_loader.py
+- Fixed: numpy.int64/float64 not JSON-serializable — added .item() conversion in build_features()
+- Added: minimum-amount business-rule guardrail (amount < 100 bypasses ML scoring), 
+  addressing the Case 3 out-of-distribution finding
+- Backend + frontend now fully working end-to-end
